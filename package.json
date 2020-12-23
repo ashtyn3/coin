@@ -1,0 +1,16 @@
+{
+  "name": "coin",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "crypto-js": "^4.0.0",
+    "elliptic": "^6.5.3",
+    "fs": "^0.0.1-security",
+    "socket.io": "^3.0.3",
+    "socket.io-p2p": "^2.2.0",
+    "socket.io-p2p-server": "^1.2.0",
+    "ws": "^7.4.0",
+    "yargs": "^16.1.1"
+  }
+}
