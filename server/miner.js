@@ -10,26 +10,42 @@ let i = 0;
 const ws = new WebSocket("ws://localhost:8080");
 
 function task() {
-    ws.send(
-        JSON.stringify({
-            type: "mine",
-            owner: pair.getPublic("hex"),
-        })
-    );
-    // delay
-    i++;
-    setTimeout(() => {
-        task();
-    }, 500);
+  process.stdout.write("sending request");
+  setTimeout(() => {
+    process.stdout.write(".");
+  }, 300);
+  setTimeout(() => {
+    process.stdout.write(".");
+  }, 300);
+  setTimeout(() => {
+    process.stdout.write(".");
+  }, 300);
+  setTimeout(() => {
+    process.stdout.write("");
+  }, 300);
+  ws.send(
+    JSON.stringify({
+      type: "mine",
+      owner: pair.getPublic("hex"),
+    })
+  );
+  // delay
+  i++;
+  setTimeout(() => {
+    process.stdout.clearLine();
+    process.stdout.cursorTo(0);
+
+    task();
+  }, 1000);
 }
 ws.onopen = () => {
-    ws.on("message", (d) => {
-        const msg = JSON.parse(d);
-        if (msg.code == "NMB") {
-            return;
-        } else {
-            console.log("got 5 COIN");
-        }
-    });
-    task();
+  ws.on("message", (d) => {
+    const msg = JSON.parse(d);
+    if (msg.code == "NMB") {
+      return;
+    } else {
+      console.log("\ngot 5 COIN");
+    }
+  });
+  task();
 };

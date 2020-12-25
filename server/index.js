@@ -5,86 +5,174 @@ const EC = require("elliptic").ec;
 const ec = new EC("secp256k1");
 
 const wss = new WebSocket.Server({ port: 8080 });
-const chain = new Blockchain();
-const sendTxn = (prvKey, submittedTxn) => {
-    const key = ec.keyFromPrivate(prvKey);
-    if (
-        chain.getBalance(key.getPublic("hex")) == 0 ||
-        chain.getBalance(key.getPublic("hex")) < submittedTxn.amount
-    ) {
-        return JSON.stringify({
-            type: "txn",
-            msg: "your balance is to low",
-            code: "LB",
-            status: "fail",
-        });
-    }
-    // const addr = key.getPublic("hex");
-    const txn = new transaction(
-        submittedTxn.to,
-        submittedTxn.from,
-        submittedTxn.amount
-    );
-    txn.signTxn(key);
-    chain.addtxn(txn);
-    return JSON.stringify({
-        type: "txn",
-        msg: txn.sig,
-        status: "success",
-    });
-    // chain.addtxn(txn);
+console.log(
+  "[INFO] " +
+    Date().toString() +
+    ":starting server on port 8080\n\taddress: ws://localhost:8080"
+);
+const IP = (request) => {
+  const ip =
+    request.headers["x-forwarded-for"] ||
+    request.connection.remoteAddress ||
+    request.socket.remoteAddress ||
+    request.connection.socket.remoteAddress;
+  const newIp = ip.replace(/[^0-9.]/g, "");
+  return newIp;
 };
-const users = [];
-
-wss.on("connection", (ws) => {
-    ws.on("message", (message) => {
-        const msg = JSON.parse(message);
-        if (!users.includes(msg.privateKey) && msg.privateKey != undefined) {
-            const key = ec.keyFromPrivate(msg.privateKey);
-            users.push(users.push(key.getPublic("hex")));
-        }
-        if (!users.includes(msg.owner) && msg.owner != undefined) {
-            users.push(msg.owner);
-        }
-
-        if (msg.type == "txn") {
-            const data = sendTxn(msg.privateKey, msg.transaction);
-            ws.send(JSON.stringify(data));
-        } else if (msg.type == "mine") {
-            if (chain.pendingTxn.length == 0) {
-                ws.send(
-                    JSON.stringify({
-                        type: "mine",
-                        msg: "No blocks to mine",
-                        code: "NMB",
-                        status: "fail",
-                    })
-                );
-            } else {
-                chain.minePending(msg.owner);
-                ws.send(
-                    JSON.stringify({
-                        type: "mine",
-                        msg: "",
-                        status: "success",
-                    })
-                );
-            }
-        } else if (msg.type == "balance") {
-            ws.send(chain.getBalance(msg.owner));
-        }
-        // TODO: add mining request that returns pending array
+const chain = new Blockchain();
+const backup = fs.readFileSync("backup.json", "utf-8");
+const last = JSON.parse(backup);
+chain.chain = last.chain;
+chain.pendingTxn = last.pendingTxn;
+console.log(
+  "[INFO] " +
+    Date().toString() +
+    ":recompiling old chain and pending blocks.\n\tblocks created: " +
+    last.chain.length +
+    "\n\tpending created: " +
+    last.pendingTxn.length
+);
+const sendTxn = (prvKey, submittedTxn) => {
+  const key = ec.keyFromPrivate(prvKey);
+  if (
+    chain.getBalance(key.getPublic("hex")) == 0 ||
+    (chain.getBalance(key.getPublic("hex")) < submittedTxn.amount &&
+      submittedTxn.from != null)
+  ) {
+    return JSON.stringify({
+      type: "txn",
+      msg: "your balance is to low",
+      code: "LB",
+      status: "fail",
     });
+  }
+  // const addr = key.getPublic("hex");
+  const txn = new transaction(
+    submittedTxn.to,
+    submittedTxn.from,
+    submittedTxn.amount
+  );
+  txn.signTxn(key);
+  chain.addtxn(txn);
+  return JSON.stringify({
+    type: "txn",
+    msg: txn.sig,
+    status: "success",
+  });
+  // chain.addtxn(txn);
+};
+
+const sendBalance = (owner) => {
+  const key = ec.genKeyPair();
+  const txn = new transaction(owner, key.getPublic("hex"), 100);
+  txn.signTxn(key);
+  chain.addtxn(txn);
+  return txn.sig;
+};
+
+const users = [];
+let lastMiner = "";
+wss.on("connection", (ws, req) => {
+  users.push(req.headers["x-forwarded-for"] || req.connection.remoteAddress);
+  ws.on("message", (message) => {
+    const msg = JSON.parse(message);
+    if (!users.includes(msg.privateKey) && msg.privateKey != undefined) {
+      const key = ec.keyFromPrivate(msg.privateKey);
+      users.push(users.push(key.getPublic("hex")));
+    }
+
+    if (msg.type == "txn") {
+      const data = sendTxn(msg.privateKey, msg.transaction);
+      ws.send(JSON.stringify(data));
+      console.log(
+        "[TRACE] " +
+          Date().toString() +
+          ": Received pending transaction.\n\tfrom: " +
+          msg.transaction.from +
+          "\n\tto: " +
+          msg.transaction.to +
+          "\n\tamount: " +
+          msg.transaction.amount
+      );
+    } else if (msg.type == "mine") {
+      const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+      let noLog = false;
+      if (lastMiner == msg.owner && chain.pendingTxn == 0) {
+        noLog = true;
+      }
+      let error = false;
+      let errorMsg = "";
+      if (!noLog)
+        console.log(
+          "[TRACE] " +
+            Date().toString() +
+            ": " +
+            IP(req) +
+            " started mining block."
+        );
+      try {
+        chain.minePending(msg.owner);
+      } catch (e) {
+        error = true;
+        errorMsg = e;
+      }
+      if (chain.pendingTxn.length == 0) {
+        ws.send(
+          JSON.stringify({
+            type: "mine",
+            msg: "No blocks to mine",
+            code: "NMB",
+            status: "fail",
+          })
+        );
+        if (!noLog) console.log("\tstatus: fail");
+      } else if (error) {
+        ws.send(
+          JSON.stringify({
+            type: "mine",
+            msg: errorMsg,
+            code: "E",
+            status: "fail",
+          })
+        );
+        if (!noLog) console.log("\tstatus: fail");
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: "mine",
+            msg: "",
+            status: "success",
+          })
+        );
+        if (!noLog) console.log("\tstatus: success");
+      }
+      lastMiner = msg.owner;
+    } else if (msg.type == "balance") {
+      ws.send(chain.getBalance(msg.owner));
+    } else if (msg.type == "newBalance") {
+      const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+      if (users[0] === ip) {
+        ws.send(sendBalance(msg.owner));
+        users.unshift("");
+      }
+    }
+
+    // TODO: add mining request that returns pending array
+  });
 });
 
 process.stdin.resume(); //so the program will not close instantly
-
 function exitHandler(options, exitCode) {
-    if (options.cleanup) {
-        fs.writeFileSync("backup.json", JSON.stringify(chain));
-    }
-    // if (exitCode || exitCode === 0) ;
-    if (options.exit) process.exit();
+  if (options.cleanup) {
+    console.log(
+      "[INFO]",
+      Date().toString(),
+      "\b: backing up chain and pending blocks"
+    );
+    fs.writeFileSync("backup.json", JSON.stringify(chain));
+  }
+  // if (exitCode || exitCode === 0) ;
+  if (options.exit) process.exit();
 }
 
 //do something when app is closing

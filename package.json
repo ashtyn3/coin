@@ -7,6 +7,7 @@
     "crypto-js": "^4.0.0",
     "elliptic": "^6.5.3",
     "fs": "^0.0.1-security",
+    "ipware": "^2.0.0",
     "socket.io": "^3.0.3",
     "socket.io-p2p": "^2.2.0",
     "socket.io-p2p-server": "^1.2.0",
