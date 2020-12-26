@@ -20,18 +20,26 @@ const IP = (request) => {
   return newIp;
 };
 const chain = new Blockchain();
-const backup = fs.readFileSync("backup.json", "utf-8");
-const last = JSON.parse(backup);
-chain.chain = last.chain;
-chain.pendingTxn = last.pendingTxn;
-console.log(
-  "[INFO] " +
-    Date().toString() +
-    ":recompiling old chain and pending blocks.\n\tblocks created: " +
-    last.chain.length +
-    "\n\tpending created: " +
-    last.pendingTxn.length
-);
+try {
+  const backup = fs.readFileSync("backup.json", "utf-8");
+  const last = JSON.parse(backup);
+  chain.chain = last.chain;
+  chain.pendingTxn = last.pendingTxn;
+  console.log(
+    "[INFO] " +
+      Date().toString() +
+      ":recompiling old chain and pending blocks.\n\tblocks created: " +
+      last.chain.length +
+      "\n\tpending created: " +
+      last.pendingTxn.length
+  );
+} catch (e) {
+  console.log(
+    "[WARNING] " +
+      Date().toString() +
+      ":No Backup of chain or pending blocks.\n\tdirectory: .\n\tfile: backup.json"
+  );
+}
 const sendTxn = (prvKey, submittedTxn) => {
   const key = ec.keyFromPrivate(prvKey);
   if (
@@ -47,27 +55,45 @@ const sendTxn = (prvKey, submittedTxn) => {
     });
   }
   // const addr = key.getPublic("hex");
-  const txn = new transaction(
-    submittedTxn.to,
-    submittedTxn.from,
-    submittedTxn.amount
-  );
-  txn.signTxn(key);
-  chain.addtxn(txn);
-  return JSON.stringify({
-    type: "txn",
-    msg: txn.sig,
-    status: "success",
-  });
+  try {
+    const txn = new transaction(
+      submittedTxn.to,
+      submittedTxn.from,
+      submittedTxn.amount
+    );
+    txn.signTxn(key);
+    chain.addtxn(txn);
+    return JSON.stringify({
+      type: "txn",
+      msg: txn.sig,
+      status: "success",
+    });
+  } catch (e) {
+    return JSON.stringify({
+      type: "txn",
+      msg: e.message,
+      code: "E",
+      status: "fail",
+    });
+  }
   // chain.addtxn(txn);
 };
 
 const sendBalance = (owner) => {
   const key = ec.genKeyPair();
-  const txn = new transaction(owner, key.getPublic("hex"), 100);
-  txn.signTxn(key);
-  chain.addtxn(txn);
-  return txn.sig;
+  try {
+    const txn = new transaction(owner, key.getPublic("hex"), 100);
+    txn.signTxn(key);
+    chain.addtxn(txn);
+    return txn;
+  } catch (e) {
+    return {
+      type: "newBalance",
+      msg: e.message,
+      code: "E",
+      status: "fail",
+    };
+  }
 };
 
 const users = [];
@@ -97,12 +123,13 @@ wss.on("connection", (ws, req) => {
     } else if (msg.type == "mine") {
       const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
       let noLog = false;
-      if (lastMiner == msg.owner && chain.pendingTxn == 0) {
+      if (lastMiner == msg.owner && chain.pendingTxn.length == 0) {
         noLog = true;
       }
+      lastMiner = msg.owner;
       let error = false;
       let errorMsg = "";
-      if (!noLog)
+      if (!noLog && chain.pendingTxn.length != 0)
         console.log(
           "[TRACE] " +
             Date().toString() +
@@ -111,22 +138,26 @@ wss.on("connection", (ws, req) => {
             " started mining block."
         );
       try {
-        chain.minePending(msg.owner);
+        if (chain.pendingTxn.length != 0) {
+          chain.minePending(msg.owner);
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "mine",
+              msg: "No blocks to mine",
+              code: "NMB",
+              status: "fail",
+            })
+          );
+          if (!noLog && chain.pendingTxn.length != 0)
+            console.log("\tstatus: fail");
+          return;
+        }
       } catch (e) {
         error = true;
-        errorMsg = e;
+        errorMsg = e.message;
       }
-      if (chain.pendingTxn.length == 0) {
-        ws.send(
-          JSON.stringify({
-            type: "mine",
-            msg: "No blocks to mine",
-            code: "NMB",
-            status: "fail",
-          })
-        );
-        if (!noLog) console.log("\tstatus: fail");
-      } else if (error) {
+      if (error) {
         ws.send(
           JSON.stringify({
             type: "mine",
@@ -135,7 +166,8 @@ wss.on("connection", (ws, req) => {
             status: "fail",
           })
         );
-        if (!noLog) console.log("\tstatus: fail");
+        if (!noLog && chain.pendingTxn.length != 0)
+          console.log("\tstatus: fail");
       } else {
         ws.send(
           JSON.stringify({
@@ -144,15 +176,15 @@ wss.on("connection", (ws, req) => {
             status: "success",
           })
         );
-        if (!noLog) console.log("\tstatus: success");
+        if (!noLog && chain.pendingTxn.length != 0)
+          console.log("\tstatus: success");
       }
-      lastMiner = msg.owner;
     } else if (msg.type == "balance") {
       ws.send(chain.getBalance(msg.owner));
     } else if (msg.type == "newBalance") {
       const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
       if (users[0] === ip) {
-        ws.send(sendBalance(msg.owner));
+        ws.send(JSON.stringify(sendBalance(msg.owner)));
         users.unshift("");
       }
     }

@@ -13,9 +13,8 @@ ws.onopen = (socket) => {
   console.log("connected");
   ws.send(
     JSON.stringify({
-      type: "txn",
-      privateKey: pair.getPrivate("hex"),
-      transaction: new transaction("idk", pair.getPublic("hex"), 10),
+      type: "newBalance",
+      owner: pair.getPublic("hex"),
     })
   );
   // ws.emit("message", "zoom");
