@@ -2,7 +2,7 @@ const WebSocket = require("ws");
 const { transaction } = require("../src/blockchain");
 const EC = require("elliptic").ec;
 const ec = new EC("secp256k1");
-
+const crypto = require("crypto");
 const addr = process.env.coin_address;
 
 const pair = ec.keyFromPrivate(addr, "hex");
@@ -38,13 +38,43 @@ function task() {
     task();
   }, 1000);
 }
+const calchash = (block) => {
+  block.hash = crypto
+    .createHash("sha256")
+    .update(
+      block.previousHash +
+        block.timestamp +
+        JSON.stringify(block.transactions) +
+        block.nonce
+    )
+    .digest("hex");
+  return block;
+};
 ws.onopen = () => {
   ws.on("message", (d) => {
     const msg = JSON.parse(d);
     if (msg.code == "NMB") {
       return;
     } else {
-      console.log("\ngot 5 COIN");
+      let nonce = 0;
+      if (msg.status == "fail") {
+        console.log("ERROR: " + msg.msg);
+      } else {
+        let block = msg.hash;
+        while (block?.hash.substring(0, msg.target.length) !== msg.target) {
+          block.nonce += 1;
+          msg.hash.hash = calchash(msg.hash).hash;
+        }
+        if (block != undefined) {
+          ws.send(
+            JSON.stringify({
+              type: "done",
+              block: block,
+              target: msg.target,
+            })
+          );
+        }
+      }
     }
   });
   task();

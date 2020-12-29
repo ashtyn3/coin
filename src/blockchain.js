@@ -72,7 +72,7 @@ class Blockchain {
     this.chain = [this.createGenBlock()];
     this.pendingTxn = [];
     this.reward = 5;
-    this.difficulty = 5;
+    this.difficulty = Math.abs(this.pendingTxn.length - 2);
   }
   createGenBlock() {
     return new Block(0, "0/0/00", "");
@@ -83,12 +83,17 @@ class Blockchain {
   }
 
   minePending(to) {
-    const rewardTx = new transaction(to, null, this.reward);
+    const rewardTx = new transaction(
+      to,
+      null,
+      (this.pendingTxn.length / 100) * this.difficulty + 0.1
+    );
     this.pendingTxn.push(rewardTx);
     let block = new Block(Date.now(), this.pendingTxn, this.getLatest().hash);
-    block.mineBlock(this.difficulty);
-    this.chain.push(block);
-    this.pendingTxn = [];
+    //block.mineBlock(this.difficulty);
+    //this.chain.push(block);
+    //this.pendingTxn = [];
+    return block.calchash(), block;
   }
 
   addtxn(txn) {

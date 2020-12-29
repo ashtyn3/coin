@@ -139,7 +139,14 @@ wss.on("connection", (ws, req) => {
         );
       try {
         if (chain.pendingTxn.length != 0) {
-          chain.minePending(msg.owner);
+          ws.send(
+            JSON.stringify({
+              target: Array(Math.abs(chain.difficulty) + 1).join("0"),
+              difficulty: chain.difficulty,
+              hash: chain.minePending(msg.owner),
+            })
+          );
+          //chain.minePending(msg.owner);
         } else {
           ws.send(
             JSON.stringify({
@@ -154,6 +161,7 @@ wss.on("connection", (ws, req) => {
           return;
         }
       } catch (e) {
+        console.log(e);
         error = true;
         errorMsg = e.message;
       }
@@ -168,16 +176,40 @@ wss.on("connection", (ws, req) => {
         );
         if (!noLog && chain.pendingTxn.length != 0)
           console.log("\tstatus: fail");
-      } else {
+      }
+    } else if (msg.type == "done") {
+      try {
+        if (msg.block.hash.substring(0, chain.difficulty) == msg.target) {
+          ws.send(
+            JSON.stringify({
+              type: "mine",
+              msg: "",
+              status: "success",
+            })
+          );
+          chain.chain.push(msg.block);
+          chain.pendingTxn = [];
+          console.log("\tstatus: success");
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "mine",
+              msg: "",
+              status: "fail",
+            })
+          );
+          console.log("\tstatus: fail");
+        }
+      } catch (err) {
+        console.log(err);
         ws.send(
           JSON.stringify({
-            type: "mine",
-            msg: "",
-            status: "success",
+            type: "done",
+            msg: err.message,
+            code: "E",
+            status: "fail",
           })
         );
-        if (!noLog && chain.pendingTxn.length != 0)
-          console.log("\tstatus: success");
       }
     } else if (msg.type == "balance") {
       ws.send(chain.getBalance(msg.owner));
