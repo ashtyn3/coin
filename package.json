@@ -6,6 +6,7 @@
   "dependencies": {
     "crypto-js": "^4.0.0",
     "elliptic": "^6.5.3",
+    "express": "^4.17.1",
     "fs": "^0.0.1-security",
     "ipware": "^2.0.0",
     "socket.io": "^3.0.3",

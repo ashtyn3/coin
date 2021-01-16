@@ -9,12 +9,25 @@ const pair = ec.keyFromPrivate(
   "0cb1f2e59e7e45c7ef8c7a6f3e1a2e58bace7b0d7f98841cc0f0faa758fb0f73",
   "hex"
 );
+
+const receiver = ec.genKeyPair();
 ws.onopen = (socket) => {
   console.log("connected");
   ws.send(
     JSON.stringify({
       type: "newBalance",
       owner: pair.getPublic("hex"),
+    })
+  );
+  ws.send(
+    JSON.stringify({
+      type: "txn",
+      privateKey: pair.getPrivate("hex"),
+      transaction: new transaction(
+        receiver.getPublic("hex"),
+        pair.getPublic("hex"),
+        10
+      ),
     })
   );
   // ws.emit("message", "zoom");

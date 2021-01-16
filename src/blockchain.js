@@ -1,4 +1,3 @@
-// const { time } = require("console");
 const crypto = require("crypto");
 const { format } = require("path");
 const EC = require("elliptic").ec;
@@ -23,6 +22,7 @@ class transaction {
     const hash = this.calcHash();
     const sig = key.sign(hash, "base64");
     this.sig = sig.toDER("hex");
+    this.hash = hash;
   }
   valid() {
     if (this.from == null) return true;
@@ -73,6 +73,9 @@ class Blockchain {
     this.pendingTxn = [];
     this.reward = 5;
     this.difficulty = Math.abs(this.pendingTxn.length - 2);
+    if (this.difficulty <= 4) {
+      this.difficulty = 5;
+    }
   }
   createGenBlock() {
     return new Block(0, "0/0/00", "");
@@ -86,7 +89,7 @@ class Blockchain {
     const rewardTx = new transaction(
       to,
       null,
-      (this.pendingTxn.length / 100) * this.difficulty + 0.1
+      this.reward + this.pendingTxn.length
     );
     this.pendingTxn.push(rewardTx);
     let block = new Block(Date.now(), this.pendingTxn, this.getLatest().hash);

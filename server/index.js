@@ -1,9 +1,12 @@
 const fs = require("fs");
+const { exec } = require("child_process");
+
 const WebSocket = require("ws");
 const { Blockchain, transaction } = require("../src/blockchain");
 const EC = require("elliptic").ec;
 const ec = new EC("secp256k1");
-
+const crypto = require("crypto");
+const cr = require("crypto-js");
 const wss = new WebSocket.Server({ port: 8080 });
 console.log(
   "[INFO] " +
@@ -20,6 +23,13 @@ const IP = (request) => {
   return newIp;
 };
 const chain = new Blockchain();
+if (!fs.existsSync("chain.blk")) {
+  fs.writeFileSync("chain.blk", "legacyChain");
+}
+
+if (!fs.existsSync("pending.blk")) {
+  fs.writeFileSync("pending.blk", "legacyPending");
+}
 try {
   const backup = fs.readFileSync("backup.json", "utf-8");
   const last = JSON.parse(backup);
@@ -40,12 +50,22 @@ try {
       ":No Backup of chain or pending blocks.\n\tdirectory: .\n\tfile: backup.json"
   );
 }
-const sendTxn = (prvKey, submittedTxn) => {
+var enc = (val, ENC_KEY, IV) => {
+  let cipher = crypto.createCipheriv("aes-256-cbc", ENC_KEY, IV);
+  let encrypted = cipher.update(val, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return encrypted;
+};
+wss.broadcast = function (data) {
+  wss.clients.forEach((client) => client.send(data));
+};
+const sendTxn = (prvKey, submittedTxn, faucet) => {
   const key = ec.keyFromPrivate(prvKey);
   if (
     chain.getBalance(key.getPublic("hex")) == 0 ||
     (chain.getBalance(key.getPublic("hex")) < submittedTxn.amount &&
-      submittedTxn.from != null)
+      submittedTxn.from != null &&
+      faucet != true)
   ) {
     return JSON.stringify({
       type: "txn",
@@ -63,12 +83,34 @@ const sendTxn = (prvKey, submittedTxn) => {
     );
     txn.signTxn(key);
     chain.addtxn(txn);
+    if (chain.pendingTxn.length == 1) {
+      fs.appendFileSync(
+        "pending.blk",
+        "\n--\n" +
+          enc(
+            JSON.stringify(txn),
+            chain.chain[0].hash.slice(0, 32),
+            chain.chain[0].hash.slice(0, 16)
+          )
+      );
+    } else {
+      fs.appendFileSync(
+        "pending.blk",
+        "\n--\n" +
+          enc(
+            JSON.stringify(txn),
+            chain.pendingTxn[chain.pendingTxn.length - 1].sig.slice(0, 32),
+            chain.pendingTxn[chain.pendingTxn.length - 1].sig.slice(0, 16)
+          )
+      );
+    }
     return JSON.stringify({
       type: "txn",
       msg: txn.sig,
       status: "success",
     });
   } catch (e) {
+    console.log(e);
     return JSON.stringify({
       type: "txn",
       msg: e.message,
@@ -98,7 +140,20 @@ const sendBalance = (owner) => {
 
 const users = [];
 let lastMiner = "";
+
+const dnc = (phrase, pw) => {
+  const key = crypto.createHash("sha256").update(pw).digest(),
+    decipher = crypto.createDecipheriv("aes256", key, resizedIV),
+    msg = [];
+
+  msg.push(decipher.update(phrase, "hex", "binary"));
+
+  msg.push(decipher.final("binary"));
+  return msg.join("");
+};
 wss.on("connection", (ws, req) => {
+  console.log(wss.clients);
+
   users.push(req.headers["x-forwarded-for"] || req.connection.remoteAddress);
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
@@ -187,13 +242,33 @@ wss.on("connection", (ws, req) => {
               status: "success",
             })
           );
+          fs.appendFileSync(
+            "chain.blk",
+            "\n--\n" +
+              enc(
+                JSON.stringify(msg.block),
+                chain.getLatest().hash.slice(0, 32),
+                chain.getLatest().hash.slice(0, 16)
+              )
+          );
           chain.chain.push(msg.block);
           chain.pendingTxn = [];
+          exec("rm pending.blk", (error, stdout, stderr) => {
+            if (error) {
+              console.log(`error: ${error.message}`);
+              return;
+            }
+            if (stderr) {
+              console.log(`stderr: ${stderr}`);
+              return;
+            }
+            fs.writeFileSync("pending.blk", "legacyPending");
+          });
           console.log("\tstatus: success");
         } else {
           ws.send(
             JSON.stringify({
-              type: "mine",
+              type: "done",
               msg: "",
               status: "fail",
             })
@@ -214,9 +289,16 @@ wss.on("connection", (ws, req) => {
     } else if (msg.type == "balance") {
       ws.send(chain.getBalance(msg.owner));
     } else if (msg.type == "newBalance") {
+      const key = ec.genKeyPair();
       const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
       if (users[0] === ip) {
-        ws.send(JSON.stringify(sendBalance(msg.owner)));
+        const key = ec.genKeyPair();
+        sendTxn(
+          key.getPrivate("hex"),
+          new transaction(msg.owner, key.getPublic("hex"), 100),
+          true
+        );
+        //ws.send(JSON.stringify(sendBalance(msg.owner)));
         users.unshift("");
       }
     }

@@ -73,6 +73,8 @@ ws.onopen = () => {
               target: msg.target,
             })
           );
+          const reward = block.transactions.length + 5 - 1;
+          console.log("\nmined block with reward: " + reward);
         }
       }
     }
